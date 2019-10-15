@@ -325,7 +325,7 @@ class Connection(object):
 
             if not cf_name.endswith(':'):
                 cf_name += ':'
-            kwargs['name'] = cf_name
+            kwargs['name'] = ensure_bytes(cf_name)
 
             column_descriptors.append(ColumnDescriptor(**kwargs))
 

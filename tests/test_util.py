@@ -55,6 +55,12 @@ def test_bytes_increment_none():
     assert util.bytes_increment(b'\xff\xff\xff') is None
 
 
+@pytest.mark.parametrize("val,expected", [('123', b'123'),
+                                          (b'qwe', b'qwe')])
+def test_ensure_bytes(val, expected):
+    assert util.ensure_bytes(val) == expected
+
+
 def test_ensure_bytes_exception():
     with pytest.raises(TypeError):
         util.ensure_bytes(123)

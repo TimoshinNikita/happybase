@@ -9,7 +9,7 @@ from struct import Struct
 from six import iteritems
 
 from .hbase.ttypes import TScan
-from .util import thrift_type_to_dict, bytes_increment, OrderedDict
+from .util import thrift_type_to_dict, bytes_increment, OrderedDict, ensure_bytes
 from .batch import Batch
 
 logger = logging.getLogger(__name__)
@@ -113,8 +113,11 @@ class Table(object):
         :return: Mapping of columns (both qualifier and family) to values
         :rtype: dict
         """
-        if columns is not None and not isinstance(columns, (tuple, list)):
-            raise TypeError("'columns' must be a tuple or list")
+        if columns is not None:
+            if not isinstance(columns, (tuple, list)):
+                raise TypeError("'columns' must be a tuple or list")
+
+            columns = [ensure_bytes(col) for col in columns]
 
         if timestamp is None:
             rows = self.connection.client.getRowWithColumns(
@@ -149,8 +152,11 @@ class Table(object):
         :return: List of mappings (columns to values)
         :rtype: list of dicts
         """
-        if columns is not None and not isinstance(columns, (tuple, list)):
-            raise TypeError("'columns' must be a tuple or list")
+        if columns is not None:
+            if not isinstance(columns, (tuple, list)):
+                raise TypeError("'columns' must be a tuple or list")
+
+            columns = [ensure_bytes(col) for col in columns]
 
         if not rows:
             # Avoid round-trip if the result is empty anyway
@@ -204,14 +210,16 @@ class Table(object):
             raise ValueError(
                 "'versions' argument must be at least 1 (or None)")
 
+        b_column = ensure_bytes(column)
+
         if timestamp is None:
             cells = self.connection.client.getVer(
-                self.name, row, column, versions, {})
+                self.name, row, b_column, versions, {})
         else:
             if not isinstance(timestamp, Integral):
                 raise TypeError("'timestamp' must be an integer")
             cells = self.connection.client.getVerTs(
-                self.name, row, column, timestamp, versions, {})
+                self.name, row, b_column, timestamp, versions, {})
 
         return [
             (c.value, c.timestamp) if include_timestamp else c.value
@@ -221,7 +229,7 @@ class Table(object):
     def scan(self, row_start=None, row_stop=None, row_prefix=None,
              columns=None, filter=None, timestamp=None,
              include_timestamp=False, batch_size=1000, scan_batching=None,
-             limit=None, sorted_columns=False, reverse=False):
+             limit=None, sorted_columns=False, reverse=False, cache_blocks=True):
         """Create a scanner for data in the table.
 
         This method returns an iterable that can be used for looping over the
@@ -305,6 +313,7 @@ class Table(object):
         :param int limit: max number of rows to return
         :param bool sorted_columns: whether to return sorted columns
         :param bool reverse: whether to perform scan in reverse
+        :param bool cache_blocks: set false to explicitly disable server-side block caching for scan
 
         :return: generator yielding the rows matching the scan
         :rtype: iterable of `(row_key, row_data)` tuples
@@ -340,7 +349,10 @@ class Table(object):
                 row_stop = bytes_increment(row_prefix)
 
         if row_start is None:
-            row_start = ''
+            row_start = b''
+
+        if columns is not None:
+            columns = [ensure_bytes(col) for col in columns]
 
         if self.connection.compat == '0.90':
             # The scannerOpenWithScan() Thrift function is not
@@ -386,6 +398,7 @@ class Table(object):
             # The Scan.setBatching() value (Java API), which possibly
             # cuts rows into multiple partial rows, can be set using the
             # slightly strange name scan_batching.
+
             scan = TScan(
                 startRow=row_start,
                 stopRow=row_stop,
@@ -396,6 +409,7 @@ class Table(object):
                 batchSize=scan_batching,
                 sortColumns=sorted_columns,
                 reversed=reverse,
+                cacheBlocks=cache_blocks
             )
             scan_id = self.connection.client.scannerOpenWithScan(
                 self.name, scan, {})
@@ -479,6 +493,10 @@ class Table(object):
         :param int timestamp: timestamp (optional)
         :param bool wal: whether to write to the WAL (optional)
         """
+
+        if columns is not None:
+            columns = [ensure_bytes(col) for col in columns]
+
         with self.batch(timestamp=timestamp, wal=wal) as batch:
             batch.delete(row, columns)
 
@@ -539,8 +557,8 @@ class Table(object):
         :py:meth:`Table.counter_inc` and :py:meth:`Table.counter_dec` methods
         for that.
 
-        :param str_or_bytes row: the row key
-        :param str column: the column name
+        :param bytes row: the row key
+        :param str_or_bytes column: the column name
 
         :return: counter value
         :rtype: int
@@ -560,11 +578,11 @@ class Table(object):
         :py:meth:`Table.counter_inc` and :py:meth:`Table.counter_dec` methods
         for that.
 
-        :param str_or_bytes row: the row key
-        :param str column: the column name
+        :param bytes row: the row key
+        :param str_or_bytes column: the column name
         :param int value: the counter value to set
         """
-        self.put(row, {column: pack_i64(value)})
+        self.put(row, {ensure_bytes(column): pack_i64(value)})
 
     def counter_inc(self, row, column, value=1):
         """Atomically increment (or decrements) a counter column.
@@ -576,17 +594,21 @@ class Table(object):
         automatically initialised to 0 before incrementing it.
 
         :param str_or_bytes row: the row key
-        :param str column: the column name
-        :param int value: the amount to increment or decrement by (optional)
+        :param str_or_bytes column: the column name
+        :param int value: the amount to increment by (optional)
 
         :return: counter value after incrementing
         :rtype: int
         """
         return self.connection.client.atomicIncrement(
-            self.name, row, column, value)
+            self.name, row, ensure_bytes(column), value)
 
     def counter_dec(self, row, column, value=1):
         """Atomically decrement (or increments) a counter column.
+
+        :param str_or_bytes row: the row key
+        :param str_or_bytes column: the column name
+        :param int value: the amount to decrement by (optional)
 
         This method is a shortcut for calling :py:meth:`Table.counter_inc` with
         the value negated.

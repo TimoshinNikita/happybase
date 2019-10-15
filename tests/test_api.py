@@ -17,6 +17,7 @@ HAPPYBASE_HOST = os.environ.get('HAPPYBASE_HOST')
 HAPPYBASE_PORT = os.environ.get('HAPPYBASE_PORT')
 HAPPYBASE_COMPAT = os.environ.get('HAPPYBASE_COMPAT', '0.98')
 HAPPYBASE_TRANSPORT = os.environ.get('HAPPYBASE_TRANSPORT', 'buffered')
+HAPPYBASE_PROTOCOL = os.environ.get('HAPPYBASE_PROTOCOL', 'binary')
 HAPPYBASE_USE_KERBEROS = os.environ.get('HAPPYBASE_USE_KERBEROS', 'false') == 'true'
 HAPPYBASE_SASL_SERVICE_NAME = os.environ.get('HAPPYBASE_SASL_SERVICE_NAME', 'hbase')
 
@@ -29,6 +30,7 @@ connection_kwargs = dict(
     table_prefix=TABLE_PREFIX,
     compat=HAPPYBASE_COMPAT,
     transport=HAPPYBASE_TRANSPORT,
+    protocol=HAPPYBASE_PROTOCOL,
     use_kerberos=HAPPYBASE_USE_KERBEROS,
     sasl_service_name=HAPPYBASE_SASL_SERVICE_NAME
 )
@@ -198,7 +200,7 @@ def test_row():
 
 
 def test_atomic_counters():
-    row = 'row-with-counter'
+    row = b'row-with-counter'
     column = 'cf1:counter'
 
     assert 0 == table.counter_get(row, column)
